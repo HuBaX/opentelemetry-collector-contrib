@@ -42,6 +42,8 @@ const (
 	RateLimiting PolicyType = "rate_limiting"
 	// Composite allows defining a composite policy, combining the other policies in one
 	Composite PolicyType = "composite"
+	// And allows defining a policy, where each subpolicy has to come to the decision to sample the trace before actually sampling it
+	And PolicyType = "and"
 )
 
 // SubPolicyCfg holds the common configuration to all policies under composite policy.
@@ -60,6 +62,13 @@ type SubPolicyCfg struct {
 	LatencyCfg LatencyCfg `mapstructure:"latency"`
 	// Configs for status code filter sampling policy evaluator.
 	StatusCodeCfg StatusCodeCfg `mapstructure:"status_code"`
+
+	ProbabilisticCfg ProbabilisticCfg `mapstructure:"probabilistic"`
+}
+
+// AndCfg hold the configurable settings to create a combined sampling policy evaluator
+type AndCfg struct {
+	SubPolicyCfg []SubPolicyCfg `mapstructure:"combined_policy"`
 }
 
 // CompositeCfg holds the configurable settings to create a composite
@@ -97,6 +106,8 @@ type PolicyCfg struct {
 	RateLimitingCfg RateLimitingCfg `mapstructure:"rate_limiting"`
 	// Configs for defining composite policy
 	CompositeCfg CompositeCfg `mapstructure:"composite"`
+	// Configs for defining and policy
+	AndCfg AndCfg `mapstructure:"and"`
 }
 
 // LatencyCfg holds the configurable settings to create a latency filter sampling policy

@@ -82,6 +82,30 @@ processors:
                 ]
             }
         },
+        {
+          name: and,
+          type: and,
+          and: {
+            combined_policy: [
+              {
+                name: numeric,
+                type: numeric_attribute,
+                numeric_attribute: {key: key1, min_value: 50, max_value: 100},
+
+              },
+              {
+                name: string,
+                type: string_attribute,
+                string_attribute: {key: key2, values: [value1, value2]}
+              },
+              {
+                name: latency,
+                type: latency,
+                latency: {threshold_ms: 2000},
+              }
+            ]
+          }
+        }
       ]
 
 service:

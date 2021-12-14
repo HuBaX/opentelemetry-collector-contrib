@@ -112,6 +112,29 @@ func TestLoadConfig(t *testing.T) {
 						},
 					},
 				},
+				{
+					Name: "and",
+					Type: And,
+					AndCfg: AndCfg{
+						SubPolicyCfg: []SubPolicyCfg{
+							{
+								Name:                "numeric",
+								Type:                NumericAttribute,
+								NumericAttributeCfg: NumericAttributeCfg{Key: "key1", MinValue: 50, MaxValue: 100},
+							},
+							{
+								Name:               "string",
+								Type:               StringAttribute,
+								StringAttributeCfg: StringAttributeCfg{Key: "key2", Values: []string{"value1", "value2"}},
+							},
+							{
+								Name:       "latency",
+								Type:       Latency,
+								LatencyCfg: LatencyCfg{ThresholdMs: 2000},
+							},
+						},
+					},
+				},
 			},
 		})
 }
