@@ -21,20 +21,24 @@ import (
 	"go.uber.org/zap"
 )
 
-func getNewAndPolicy(logger *zap.Logger, config AndCfg) sampling.PolicyEvaluator {
+func getNewAndPolicy(logger *zap.Logger, config AndCfg) (sampling.PolicyEvaluator, error) {
 	subpolicies := []sampling.PolicyEvaluator{}
 	ratelimiter := []sampling.PolicyEvaluator{}
 	for _, subCfg := range config.SubPolicyCfg {
-		evaluator, _ := getEvaluator(logger, &subCfg)
+		evaluator, err := getEvaluator(logger, &subCfg)
+		if err != nil {
+			return nil, err
+		}
 		if subCfg.Type == RateLimiting {
 			ratelimiter = append(ratelimiter, evaluator)
 		} else {
 			subpolicies = append(subpolicies, evaluator)
 		}
-		//rate limiters will be evaluated last because of their stateful sampling logic
-		subpolicies = append(subpolicies, ratelimiter...)
+
 	}
-	return sampling.NewAndPolicy(logger, subpolicies)
+	//rate limiters will be evaluated last because of their stateful sampling logic
+	subpolicies = append(subpolicies, ratelimiter...)
+	return sampling.NewAndPolicy(logger, subpolicies), nil
 }
 
 // Return instance of composite sub-policy

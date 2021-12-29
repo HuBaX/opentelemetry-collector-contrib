@@ -15,8 +15,6 @@
 package sampling // import "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor/internal/sampling"
 
 import (
-	"fmt"
-
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
 )
@@ -35,9 +33,6 @@ func (and *And) OnLateArrivingSpans(earlyDecision Decision, spans []*pdata.Span)
 
 func (and *And) Evaluate(traceID pdata.TraceID, trace *TraceData) (Decision, error) {
 	for _, policy := range and.SubPolicies {
-		if policy == nil {
-			return Error, fmt.Errorf("unknown subpolicy type")
-		}
 		decision, err := policy.Evaluate(traceID, trace)
 		if err != nil {
 			return Error, err
