@@ -116,7 +116,7 @@ func TestLoadConfig(t *testing.T) {
 					Name: "and",
 					Type: And,
 					AndCfg: AndCfg{
-						SubPolicyCfg: []SubPolicyCfg{
+						SubPolicyCfg: []PolicyCfg{
 							{
 								Name:                "numeric",
 								Type:                NumericAttribute,

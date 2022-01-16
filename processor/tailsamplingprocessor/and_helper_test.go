@@ -14,6 +14,7 @@
 package tailsamplingprocessor
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestGetNewAndPolicy(t *testing.T) {
 				Name: "and-policy",
 				Type: And,
 				AndCfg: AndCfg{
-					SubPolicyCfg: []SubPolicyCfg{
+					SubPolicyCfg: []PolicyCfg{
 						{
 							Name:                "policy-1",
 							Type:                NumericAttribute,
@@ -52,17 +53,41 @@ func TestGetNewAndPolicy(t *testing.T) {
 							Type:               StringAttribute,
 							StringAttributeCfg: StringAttributeCfg{Key: "string", Values: []string{"value1", "value2"}},
 						},
+						{
+							Name:          "test-policy-5",
+							Type:          StatusCode,
+							StatusCodeCfg: StatusCodeCfg{StatusCodes: []string{"ERROR", "UNSET"}},
+						},
+						{
+							Name:       "test-policy-2",
+							Type:       Latency,
+							LatencyCfg: LatencyCfg{ThresholdMs: 5000},
+						},
+						{
+							Name: "test-policy-1",
+							Type: AlwaysSample,
+						},
+						{
+							Name:             "test-policy-4",
+							Type:             Probabilistic,
+							ProbabilisticCfg: ProbabilisticCfg{HashSalt: "custom-salt", SamplingPercentage: 0.1},
+						},
 					},
 				},
 			},
 		},
 	}
 	andCfg := cfg.PolicyCfgs[0].AndCfg
-	numeric := sampling.NewNumericAttributeFilter(zap.NewNop(), "number", 50, 100)
-	ratelimit := sampling.NewRateLimiting(zap.NewNop(), 10)
-	str := sampling.NewStringAttributeFilter(zap.NewNop(), "string", []string{"value1, value2"}, false, -1, false)
+	logger := zap.NewNop()
+	numeric := sampling.NewNumericAttributeFilter(logger, "number", 50, 100)
+	ratelimit := sampling.NewRateLimiting(logger, 10)
+	str := sampling.NewStringAttributeFilter(logger, "string", []string{"value1, value2"}, false, -1, false)
+	status, _ := sampling.NewStatusCodeFilter(logger, []string{"ERROR", "UNSET"})
+	lat := sampling.NewLatency(logger, 5000)
+	always := sampling.NewAlwaysSample(logger)
+	prob := sampling.NewProbabilisticSampler(logger, "custom-salt", 0.1)
 
-	and, err := getNewAndPolicy(zap.NewNop(), andCfg)
+	and, err := getNewAndPolicy(logger, andCfg)
 
 	require.NotNil(t, and)
 	assert.NoError(err)
@@ -73,6 +98,5 @@ func TestGetNewAndPolicy(t *testing.T) {
 	assert.IsType(&sampling.And{}, and)
 	samplingAnd := and.(*sampling.And)
 	//Checking if the rate limiter will be executed last, since it is the only stateful policy to date
-	assert.Equal([]sampling.PolicyEvaluator{numeric, str, ratelimit}, samplingAnd.SubPolicies)
-
+	reflect.DeepEqual([]sampling.PolicyEvaluator{numeric, str, ratelimit, status, lat, always, prob}, samplingAnd.SubPolicies)
 }

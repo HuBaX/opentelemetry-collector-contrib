@@ -62,13 +62,11 @@ type SubPolicyCfg struct {
 	LatencyCfg LatencyCfg `mapstructure:"latency"`
 	// Configs for status code filter sampling policy evaluator.
 	StatusCodeCfg StatusCodeCfg `mapstructure:"status_code"`
-
-	ProbabilisticCfg ProbabilisticCfg `mapstructure:"probabilistic"`
 }
 
 // AndCfg hold the configurable settings to create a combined sampling policy evaluator
 type AndCfg struct {
-	SubPolicyCfg []SubPolicyCfg `mapstructure:"combined_policy"`
+	SubPolicyCfg []PolicyCfg `mapstructure:"combined_policy"`
 }
 
 // CompositeCfg holds the configurable settings to create a composite

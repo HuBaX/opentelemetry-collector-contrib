@@ -15,8 +15,6 @@
 package tailsamplingprocessor // import "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor"
 
 import (
-	"fmt"
-
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor/internal/sampling"
 	"go.uber.org/zap"
 )
@@ -25,7 +23,7 @@ func getNewAndPolicy(logger *zap.Logger, config AndCfg) (sampling.PolicyEvaluato
 	subpolicies := []sampling.PolicyEvaluator{}
 	ratelimiter := []sampling.PolicyEvaluator{}
 	for _, subCfg := range config.SubPolicyCfg {
-		evaluator, err := getEvaluator(logger, &subCfg)
+		evaluator, err := GetPolicyEvaluator(logger, &subCfg)
 		if err != nil {
 			return nil, err
 		}
@@ -39,23 +37,4 @@ func getNewAndPolicy(logger *zap.Logger, config AndCfg) (sampling.PolicyEvaluato
 	//rate limiters will be evaluated last because of their stateful sampling logic
 	subpolicies = append(subpolicies, ratelimiter...)
 	return sampling.NewAndPolicy(logger, subpolicies), nil
-}
-
-// Return instance of composite sub-policy
-func getEvaluator(logger *zap.Logger, cfg *SubPolicyCfg) (sampling.PolicyEvaluator, error) {
-	switch cfg.Type {
-	case AlwaysSample:
-		return sampling.NewAlwaysSample(logger), nil
-	case NumericAttribute:
-		nafCfg := cfg.NumericAttributeCfg
-		return sampling.NewNumericAttributeFilter(logger, nafCfg.Key, nafCfg.MinValue, nafCfg.MaxValue), nil
-	case StringAttribute:
-		safCfg := cfg.StringAttributeCfg
-		return sampling.NewStringAttributeFilter(logger, safCfg.Key, safCfg.Values, safCfg.EnabledRegexMatching, safCfg.CacheMaxSize, safCfg.InvertMatch), nil
-	case RateLimiting:
-		rlfCfg := cfg.RateLimitingCfg
-		return sampling.NewRateLimiting(logger, rlfCfg.SpansPerSecond), nil
-	default:
-		return nil, fmt.Errorf("unknown sampling sub-policy type %s", cfg.Type)
-	}
 }
