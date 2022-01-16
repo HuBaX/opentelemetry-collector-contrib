@@ -167,6 +167,16 @@ func verifyNumValidScrapeResults(t *testing.T, td *testData, resourceMetrics []*
 	require.Equal(t, want, len(resourceMetrics), "want %d valid scrapes, but got %d", want, len(resourceMetrics))
 }
 
+func verifyNumTotalScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+	want := 0
+	for _, p := range td.pages {
+		if p.code == 200 || p.code == 500 {
+			want++
+		}
+	}
+	require.Equal(t, want, len(resourceMetrics), "want %d total scrapes, but got %d", want, len(resourceMetrics))
+}
+
 func getMetrics(rm *pdata.ResourceMetrics) []*pdata.Metric {
 	metrics := make([]*pdata.Metric, 0)
 	ilms := rm.InstrumentationLibraryMetrics()
@@ -196,7 +206,7 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	for i := 0; i < len(rms); i++ {
 		allMetrics := getMetrics(rms[i])
 		if expectedScrapeMetricCount < len(allMetrics) && countScrapeMetrics(allMetrics) == expectedScrapeMetricCount {
-			if isFirstFailedScrape(t, allMetrics) {
+			if isFirstFailedScrape(allMetrics) {
 				continue
 			}
 			assertUp(t, 1, allMetrics)
@@ -208,18 +218,13 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	return out
 }
 
-func isFirstFailedScrape(t *testing.T, metrics []*pdata.Metric) bool {
+func isFirstFailedScrape(metrics []*pdata.Metric) bool {
 	for _, m := range metrics {
 		if m.Name() == "up" {
 			if m.Gauge().DataPoints().At(0).DoubleVal() == 1 { // assumed up will not have multiple datapoints
 				return false
 			}
 		}
-	}
-	// TODO: Issue #6376. Remove this skip once OTLP format is directly used in Prometheus Receiver.
-	if true {
-		t.Log(`Skipping the datapoint flag check for staleness markers, as the current receiver doesnt yet set the flag true for staleNaNs`)
-		return true
 	}
 
 	for _, m := range metrics {
@@ -419,6 +424,12 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 	}
 }
 
+func assertAttributesAbsent() numberPointComparator {
+	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
+		assert.Equal(t, 0, numberDataPoint.Attributes().Len(), "Attributes length should be 0")
+	}
+}
+
 func compareHistogramAttributes(attributes map[string]string) histogramPointComparator {
 	return func(t *testing.T, histogramDataPoint *pdata.HistogramDataPoint) {
 		req := assert.Equal(t, len(attributes), histogramDataPoint.Attributes().Len(), "Histogram attributes length do not match")
@@ -432,6 +443,27 @@ func compareHistogramAttributes(attributes map[string]string) histogramPointComp
 				}
 			}
 		}
+	}
+}
+
+func assertNumberPointFlagNoRecordedValue() numberPointComparator {
+	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
+		assert.True(t, numberDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
+	}
+}
+
+func assertHistogramPointFlagNoRecordedValue() histogramPointComparator {
+	return func(t *testing.T, histogramDataPoint *pdata.HistogramDataPoint) {
+		assert.True(t, histogramDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
+	}
+}
+
+func assertSummaryPointFlagNoRecordedValue() summaryPointComparator {
+	return func(t *testing.T, summaryDataPoint *pdata.SummaryDataPoint) {
+		assert.True(t, summaryDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
 	}
 }
 
@@ -474,6 +506,13 @@ func compareSummaryStartTimestamp(timeStamp pdata.Timestamp) summaryPointCompara
 func compareDoubleValue(doubleVal float64) numberPointComparator {
 	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
 		assert.Equal(t, doubleVal, numberDataPoint.DoubleVal(), "Metric double value does not match")
+	}
+}
+
+func assertNormalNan() numberPointComparator {
+	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
+		assert.True(t, math.Float64bits(numberDataPoint.DoubleVal()) == value.NormalNaN,
+			"Metric double value is not normalNaN as expected")
 	}
 }
 
@@ -547,10 +586,13 @@ func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, s
 			// split and store results by target name
 			pResults := splitMetricsByTarget(metrics)
 			lres, lep := len(pResults), len(mp.endpoints)
-			assert.Equalf(t, lep, lres, "want %d targets, but got %v\n", lep, lres)
+			// There may be an additional scrape entry between when the mock server provided
+			// all responses and when we capture the metrics.  It will be ignored later.
+			assert.GreaterOrEqualf(t, lep, lres, "want at least %d targets, but got %v\n", lep, lres)
 
 			// loop to validate outputs for each targets
-			for _, target := range targets {
+			// Stop once we have evaluated all expected results, any others are superfluous.
+			for _, target := range targets[:lep] {
 				t.Run(target.name, func(t *testing.T) {
 					scrapes := pResults[target.name]
 					if !target.validateScrapes {

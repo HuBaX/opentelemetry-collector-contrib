@@ -16,7 +16,10 @@ package prometheusreceiver
 
 import (
 	"testing"
+	"time"
 
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/config"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/collector/model/pdata"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -223,7 +226,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					histogramPointComparator: []histogramPointComparator{
 						// TODO: Prometheus Receiver Issue- start_timestamp are incorrect for Summary and Histogram metrics after a failed scrape (issue not yet posted on collector-contrib repo)
-						//compareHistogramStartTimestamp(ts1),
+						compareHistogramStartTimestamp(ts1),
 						compareHistogramTimestamp(ts2),
 						compareHistogram(2600, 5050, []uint64{1100, 500, 500, 500}),
 					},
@@ -235,7 +238,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					summaryPointComparator: []summaryPointComparator{
 						// TODO: Prometheus Receiver Issue- start_timestamp are incorrect for Summary and Histogram metrics after a failed scrape (issue not yet posted on collector-contrib repo)
-						//compareSummaryStartTimestamp(ts1),
+						compareSummaryStartTimestamp(ts1),
 						compareSummaryTimestamp(ts2),
 						compareSummary(1001, 5002, [][]float64{{0.01, 1}, {0.9, 6}, {0.99, 8}}),
 					},
@@ -266,7 +269,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					numberPointComparator: []numberPointComparator{
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset if the prior scrape had higher value
-						//compareStartTimestamp(ts3),
+						compareStartTimestamp(ts3),
 						compareTimestamp(ts3),
 						compareDoubleValue(99),
 						compareAttributes(map[string]string{"method": "post", "code": "200"}),
@@ -275,7 +278,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					numberPointComparator: []numberPointComparator{
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset if the prior scrape had higher value
-						//compareStartTimestamp(ts3),
+						compareStartTimestamp(ts3),
 						compareTimestamp(ts3),
 						compareDoubleValue(3),
 						compareAttributes(map[string]string{"method": "post", "code": "400"}),
@@ -288,7 +291,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					histogramPointComparator: []histogramPointComparator{
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset if the prior scrape had higher value
-						//compareHistogramStartTimestamp(ts3),
+						compareHistogramStartTimestamp(ts3),
 						compareHistogramTimestamp(ts3),
 						compareHistogram(2400, 4900, []uint64{900, 500, 500, 500}),
 					},
@@ -300,7 +303,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 				{
 					summaryPointComparator: []summaryPointComparator{
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset if the prior scrape had higher value
-						//compareSummaryStartTimestamp(ts3),
+						compareSummaryStartTimestamp(ts3),
 						compareSummaryTimestamp(ts3),
 						compareSummary(900, 4900, [][]float64{{0.01, 1}, {0.9, 4}, {0.99, 6}}),
 					},
@@ -963,4 +966,127 @@ func TestStartTimeMetricRegex(t *testing.T) {
 		},
 	}
 	testComponent(t, targets, true, "^(.+_)*process_start_time_seconds$")
+}
+
+// metric type is defined as 'untyped' in the first metric
+// and, type hint is missing in the 2nd metric
+var untypedMetrics = `
+# HELP http_requests_total The total number of HTTP requests.
+# TYPE http_requests_total untyped
+http_requests_total{method="post",code="200"} 100
+http_requests_total{method="post",code="400"} 5
+
+# HELP redis_connected_clients Redis connected clients
+redis_connected_clients{name="rough-snowflake-web",port="6380"} 10.0
+redis_connected_clients{name="rough-snowflake-web",port="6381"} 12.0
+`
+
+// TestUntypedMetrics validates the pass through of untyped metrics
+// through metric receiver and the conversion of untyped to gauge double
+func TestUntypedMetrics(t *testing.T) {
+	targets := []*testData{
+		{
+			name: "target1",
+			pages: []mockPrometheusResponse{
+				{code: 200, data: untypedMetrics},
+			},
+			validateFunc: verifyUntypedMetrics,
+		},
+	}
+
+	testComponent(t, targets, false, "")
+
+}
+
+func verifyUntypedMetrics(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+	verifyNumValidScrapeResults(t, td, resourceMetrics)
+	m1 := resourceMetrics[0]
+
+	// m1 has 2 metrics + 5 internal scraper metrics
+	assert.Equal(t, 7, metricsCount(m1))
+
+	wantAttributes := td.attributes
+
+	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
+	ts1 := getTS(metrics1)
+	e1 := []testExpectation{
+		assertMetricPresent("http_requests_total",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareDoubleValue(100),
+						compareAttributes(map[string]string{"method": "post", "code": "200"}),
+					},
+				},
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareDoubleValue(5),
+						compareAttributes(map[string]string{"method": "post", "code": "400"}),
+					},
+				},
+			}),
+		assertMetricPresent("redis_connected_clients",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareDoubleValue(10),
+						compareAttributes(map[string]string{"name": "rough-snowflake-web", "port": "6380"}),
+					},
+				},
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareDoubleValue(12),
+						compareAttributes(map[string]string{"name": "rough-snowflake-web", "port": "6381"}),
+					},
+				},
+			}),
+	}
+	doCompare(t, "scrape-untypedMetric-1", wantAttributes, m1, e1)
+}
+
+func TestGCInterval(t *testing.T) {
+	for _, tc := range []struct {
+		desc  string
+		input *config.Config
+		want  time.Duration
+	}{
+		{
+			desc:  "default",
+			input: &config.Config{},
+			want:  defaultGCInterval,
+		},
+		{
+			desc: "global override",
+			input: &config.Config{
+				GlobalConfig: config.GlobalConfig{
+					ScrapeInterval: model.Duration(10 * time.Minute),
+				},
+			},
+			want: 11 * time.Minute,
+		},
+		{
+			desc: "scrape config override",
+			input: &config.Config{
+				ScrapeConfigs: []*config.ScrapeConfig{
+					{
+						ScrapeInterval: model.Duration(10 * time.Minute),
+					},
+				},
+			},
+			want: 11 * time.Minute,
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := gcInterval(tc.input)
+			if got != tc.want {
+				t.Errorf("gcInterval(%+v) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
