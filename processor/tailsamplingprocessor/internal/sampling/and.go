@@ -15,6 +15,7 @@
 package sampling // import "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor/internal/sampling"
 
 import (
+	"github.com/signalfx/golib/v3/errors"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
 )
@@ -28,7 +29,18 @@ var _ PolicyEvaluator = (*And)(nil)
 
 func (and *And) OnLateArrivingSpans(earlyDecision Decision, spans []*pdata.Span) error {
 	and.logger.Debug("Spans are arriving late, decision is already made!!!")
-	return nil
+	var combinedErr error = nil
+	if earlyDecision == Sampled {
+		errs := []error{}
+		for _, evaluator := range and.SubPolicies {
+			err := evaluator.OnLateArrivingSpans(Sampled, spans)
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+		combinedErr = errors.NewMultiErr(errs)
+	}
+	return combinedErr
 }
 
 func (and *And) Evaluate(traceID pdata.TraceID, trace *TraceData) (Decision, error) {
