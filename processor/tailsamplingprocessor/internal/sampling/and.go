@@ -29,7 +29,7 @@ var _ PolicyEvaluator = (*And)(nil)
 
 func (and *And) OnLateArrivingSpans(earlyDecision Decision, spans []*pdata.Span) error {
 	and.logger.Debug("Spans are arriving late, decision is already made!!!")
-	var combinedErr error = nil
+	var combinedErr error
 	if earlyDecision == Sampled {
 		errs := []error{}
 		for _, evaluator := range and.SubPolicies {
